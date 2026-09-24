@@ -1,0 +1,73 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Russo One", "Arial Black", Impact, sans-serif;
+  --font-ui: "Chakra Petch", ui-sans-serif, system-ui, sans-serif;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #070b1a;
+  overscroll-behavior: none;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  font-family: var(--font-ui);
+  color: #e6ecff;
+}
+
+canvas {
+  display: block;
+  touch-action: none;
+}
+
+.neon-text {
+  text-shadow:
+    0 0 6px rgba(80, 200, 255, 0.9),
+    0 0 18px rgba(80, 160, 255, 0.6),
+    0 0 40px rgba(255, 40, 120, 0.35);
+}
+
+.siren-bar {
+  background: linear-gradient(90deg, #ff2d55 0%, #ff2d55 50%, #2d7bff 50%, #2d7bff 100%);
+  background-size: 200% 100%;
+  animation: siren 0.6s steps(2) infinite;
+}
+
+@keyframes siren {
+  from { background-position: 0 0; }
+  to { background-position: -200% 0; }
+}
+
+@keyframes floaty {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+.floaty { animation: floaty 3s ease-in-out infinite; }
+
+@keyframes pop-in {
+  0% { transform: scale(0.85); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.pop-in { animation: pop-in 0.22s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+
+.scanlines::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.18) 0 1px, transparent 1px 3px);
+  mix-blend-mode: multiply;
+}
