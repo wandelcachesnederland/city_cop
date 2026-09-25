@@ -99,7 +99,9 @@ export class World {
   mini: HTMLCanvasElement;
   precinctFront = { x: 31 * T, y: 34 * T };
   carSpawn = { x: 28.6 * T, y: 34 * T, angle: 0 };
-  doorRect = { x0: 30 * T + 4, x1: 32 * T - 4, y: 33 * T + 13 };
+  // Trigger before the collision boundary (33*T + player radius), so even a
+  // full movement step at low frame rates cannot skip the entrance.
+  doorRect = { x0: 30 * T + 4, x1: 32 * T - 4, y: 33 * T + 24 };
   rng = mulberry32(1337);
 
   constructor() {
