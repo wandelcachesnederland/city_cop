@@ -409,7 +409,7 @@ export class Game {
           this.updatePersons(s, true);
           this.updateTraffic(s);
         }
-        this.updateBullets(s);
+        // The result is final: no projectile may change score or stats here.
         this.updateFx(s);
         this.cam.zoom += (this.baseZoom * 1.35 - this.cam.zoom) * (1 - Math.exp(-dt * 1.5));
         this.overT += dt;
@@ -430,7 +430,10 @@ export class Game {
       this.pause();
       return;
     }
-    this.elapsed += dt;
+    // City incidents and their deadlines stop updating inside the precinct.
+    // Keep the shift clock on the same timeline so waiting indoors cannot
+    // complete a shift without answering calls.
+    if (this.scene === 'city') this.elapsed += dt;
     const P = this.player;
     P.inv -= dt;
     P.shootCd -= dt;
@@ -495,6 +498,7 @@ export class Game {
     this.mode = 'over';
     this.overT = 0;
     this.overSent = false;
+    this.bullets = [];
     Object.assign(this.stats, { score: this.score, reason, sub, time: this.elapsed, trust: Math.round(this.trust) });
     sfx.stopLoops();
     sfx.gameOver();
@@ -2508,7 +2512,7 @@ export class Game {
     g.fillText(clock, mx + M / 2, my + M + 15 * u);
     g.font = `600 ${9 * u}px ${UIFONT}`;
     g.fillStyle = this.scene === 'precinct' ? '#4fc3ff' : this.curArea ? AREA_INFO[this.curArea].color : '#8899bb';
-    g.fillText(this.scene === 'precinct' ? 'PRECINCT 9' : this.curArea ? AREA_INFO[this.curArea].name : '', mx + M / 2, my + M + 27 * u);
+    g.fillText(this.scene === 'precinct' ? 'SHIFT PAUSED' : this.curArea ? AREA_INFO[this.curArea].name : '', mx + M / 2, my + M + 27 * u);
 
     // pause button
     const pbs = 38 * u;

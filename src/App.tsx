@@ -4,7 +4,7 @@ import { Game } from './game/engine';
 import type { Stats } from './game/engine';
 import type { Station } from './game/world';
 import { AREA_INFO } from './game/world';
-import { loadScores, qualifies, saveScore, rankFor } from './game/highscores';
+import { SCORE_STORAGE_PREFIX, loadScores, qualifies, saveScore, rankFor } from './game/highscores';
 import type { HighScore } from './game/highscores';
 import { sfx } from './game/audio';
 import { ACTION_INFO, ACTIONS } from './game/incidents';
@@ -13,15 +13,15 @@ type Screen = 'title' | 'playing' | 'paused' | 'transit' | 'over';
 
 const NAME_KEY = 'nightbeat.name';
 
-function Btn({ children, onClick, variant = 'primary', className = '' }: { children: ReactNode; onClick: () => void; variant?: 'primary' | 'ghost' | 'danger'; className?: string }) {
-  const base = 'font-display tracking-wider rounded-xl px-6 py-3 transition-all active:scale-95 select-none cursor-pointer';
+function Btn({ children, onClick, variant = 'primary', className = '', disabled = false }: { children: ReactNode; onClick: () => void; variant?: 'primary' | 'ghost' | 'danger'; className?: string; disabled?: boolean }) {
+  const base = 'font-display tracking-wider rounded-xl px-6 py-3 transition-all active:scale-95 select-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none';
   const styles = {
     primary: 'bg-cyan-400 text-slate-950 hover:bg-cyan-300 shadow-[0_0_24px_rgba(79,195,255,0.55)]',
     ghost: 'bg-white/5 text-cyan-100 border border-cyan-300/30 hover:bg-white/10',
     danger: 'bg-rose-500 text-white hover:bg-rose-400 shadow-[0_0_24px_rgba(255,77,109,0.5)]',
   }[variant];
   return (
-    <button onClick={onClick} className={`${base} ${styles} ${className}`}>
+    <button type="button" disabled={disabled} onClick={onClick} className={`${base} ${styles} ${className}`}>
       {children}
     </button>
   );
@@ -50,6 +50,7 @@ function ScoreTable({ scores, highlight }: { scores: HighScore[]; highlight?: nu
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gameRef = useRef<Game | null>(null);
+  const [gameReady, setGameReady] = useState(false);
   const [screen, setScreen] = useState<Screen>('title');
   const [stats, setStats] = useState<Stats | null>(null);
   const [transit, setTransit] = useState<{ stations: Station[]; current: number } | null>(null);
@@ -63,6 +64,7 @@ export default function App() {
   });
   const [savedIdx, setSavedIdx] = useState<number | null>(null);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [muted, setMuted] = useState(false);
   const statsRef = useRef<Stats | null>(null);
   const savedRef = useRef(false);
@@ -75,6 +77,7 @@ export default function App() {
         setStats(s);
         setSaved(false);
         setSavedIdx(null);
+        setSaveError(null);
         setScreen('over');
       },
       onPause: () => setScreen('paused'),
@@ -84,35 +87,65 @@ export default function App() {
       },
     });
     gameRef.current = g;
-    return () => g.destroy();
+    setGameReady(true);
+    return () => {
+      if (gameRef.current === g) gameRef.current = null;
+      g.destroy();
+    };
   }, []);
 
-  const doSave = useCallback(() => {
+  // A different tab can add a score while this tab is still playing.
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === null || event.key.startsWith(SCORE_STORAGE_PREFIX)) {
+        setScores(loadScores());
+        setSavedIdx(null);
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
+  const doSave = useCallback((): boolean => {
     const s = statsRef.current;
-    if (!s || savedRef.current || !qualifies(s.score)) return;
+    if (!s || savedRef.current || !qualifies(s.score)) return true;
     const nm = (name.trim() || 'ACE').slice(0, 10).toUpperCase();
     try {
-      localStorage.setItem(NAME_KEY, nm);
+      const entry: HighScore = { name: nm, score: s.score, rank: rankFor(s.score), date: new Date().toISOString() };
+      const { scores: top, index } = saveScore(entry);
+      savedRef.current = true;
+      setSaved(true);
+      setSaveError(null);
+      setScores(top);
+      setSavedIdx(index < 0 ? null : index);
+      try {
+        localStorage.setItem(NAME_KEY, nm);
+      } catch {
+        // The score is saved even if remembering the name fails.
+      }
+      return true;
     } catch {
-      /* noop */
+      setSaveError('Could not save your score. Check browser storage and retry, or leave without saving.');
+      return false;
     }
-    const entry: HighScore = { name: nm, score: s.score, rank: rankFor(s.score), date: new Date().toISOString() };
-    const top = saveScore(entry);
-    savedRef.current = true;
-    setSaved(true);
-    setScores(top);
-    setSavedIdx(top.indexOf(top.find((e) => e.date === entry.date)!));
   }, [name]);
 
   const start = useCallback(() => {
+    const game = gameRef.current;
+    if (!game) return;
     sfx.init();
-    gameRef.current?.newGame();
+    game.newGame();
+    statsRef.current = null;
+    savedRef.current = false;
+    setStats(null);
+    setSaved(false);
+    setSavedIdx(null);
+    setSaveError(null);
     setScreen('playing');
   }, []);
 
   const restart = useCallback(() => {
-    doSave();
-    start();
+    if (doSave()) start();
   }, [doSave, start]);
 
   const resume = useCallback(() => {
@@ -120,12 +153,21 @@ export default function App() {
     setScreen('playing');
   }, []);
 
-  const quit = useCallback(() => {
-    doSave();
+  const returnToTitle = useCallback(() => {
     gameRef.current?.quitToTitle();
+    statsRef.current = null;
+    savedRef.current = false;
+    setStats(null);
+    setSaved(false);
+    setSavedIdx(null);
+    setSaveError(null);
     setScores(loadScores());
     setScreen('title');
-  }, [doSave]);
+  }, []);
+
+  const quit = useCallback(() => {
+    if (doSave()) returnToTitle();
+  }, [doSave, returnToTitle]);
 
   const travel = useCallback((id: number) => {
     gameRef.current?.travelTo(id);
@@ -146,9 +188,12 @@ export default function App() {
   // keyboard shortcuts for overlays
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement | null)?.tagName;
-      const typing = tag === 'INPUT';
-      if (screen === 'title' && (e.code === 'Enter' || e.code === 'Space')) {
+      if (e.repeat) return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      const typing = tag === 'INPUT' || tag === 'TEXTAREA' || !!target?.isContentEditable;
+      const nativeAction = tag === 'BUTTON' || tag === 'A' || tag === 'SELECT';
+      if (screen === 'title' && !typing && !nativeAction && (e.code === 'Enter' || e.code === 'Space')) {
         e.preventDefault();
         start();
       } else if (screen === 'paused') {
@@ -156,7 +201,7 @@ export default function App() {
         else if (e.code === 'KeyR') restart();
         else if (e.code === 'KeyQ') quit();
       } else if (screen === 'over' && !typing) {
-        if (e.code === 'KeyR' || e.code === 'Enter' || e.code === 'Space') {
+        if (e.code === 'KeyR' || (!nativeAction && (e.code === 'Enter' || e.code === 'Space'))) {
           e.preventDefault();
           restart();
         } else if (e.code === 'Escape') quit();
@@ -201,10 +246,10 @@ export default function App() {
               <p className="font-display tracking-[0.35em] text-rose-300 text-xs sm:text-sm mt-3">CITY PATROL · ONE SHIFT · EVERY CHOICE COUNTS</p>
             </div>
 
-            <Btn onClick={start} className="text-xl sm:text-2xl px-10 py-4 animate-pulse">
-              ▶ START SHIFT
+            <Btn onClick={start} disabled={!gameReady} className={`text-xl sm:text-2xl px-10 py-4 ${gameReady ? 'animate-pulse' : ''}`}>
+              {gameReady ? '▶ START SHIFT' : 'PREPARING CITY…'}
             </Btn>
-            <p className="text-xs text-slate-400 -mt-3">Press Enter / tap to begin</p>
+            <p className="text-xs text-slate-400 -mt-3">{gameReady ? 'Press Enter / tap to begin' : 'Loading the night shift'}</p>
 
             <div className="grid gap-4 w-full max-w-5xl md:grid-cols-3">
               <section className="rounded-2xl bg-slate-950/70 border border-cyan-300/20 p-5 backdrop-blur">
@@ -366,6 +411,15 @@ export default function App() {
                     />
                     <button type="submit" className="font-display rounded-lg bg-yellow-300 text-slate-950 px-4 py-2 active:scale-95">SAVE</button>
                   </form>
+                </div>
+              )}
+              {saveError && (
+                <div role="alert" className="mt-3 rounded-xl border border-rose-400/50 bg-rose-400/10 p-4 text-sm text-rose-200">
+                  <p>{saveError}</p>
+                  <div className="flex flex-wrap gap-2 mt-3">
+                    <Btn onClick={start} variant="ghost" className="text-xs">PLAY AGAIN WITHOUT SAVING</Btn>
+                    <Btn onClick={returnToTitle} variant="ghost" className="text-xs">TITLE WITHOUT SAVING</Btn>
+                  </div>
                 </div>
               )}
 
